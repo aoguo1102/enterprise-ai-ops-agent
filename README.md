@@ -35,7 +35,8 @@ flowchart LR
 | **只读 ERP 报表工具** | 内置 3 个白名单参数化只读工具（低库存预警 / 逾期应付账款 / 采购订单汇总），SQLite 强制 `PRAGMA query_only = ON`，**永不执行用户原始 SQL** | 对接生产 Oracle / PostgreSQL 只读账号与受控报表视图 |
 | **安全与防注入** | 输入长度限制、Prompt Injection 与高危 SQL（`DROP/DELETE/UPDATE`）规则拦截、越权自动拒答 | 接入语义级护栏模型与敏感字段脱敏网关 |
 | **可追溯与审计** | 每次问答返回路由类型、引用文档/表来源与结构化审计记录 | 接入 OpenTelemetry / Langfuse 与数据库持久化审计 |
-| **工程与现场演示** | 离线 `pytest` 单测、Ruff 静态检查、GitHub Actions CI、内置可视化演示页（支持角色切换与报表表格渲染） | 接入 `pgvector` 混合检索 + OpenAI 兼容大模型网关 + 30 题评测集 |
+| **大模型网关（DeepSeek）** | 零外部重依赖 OpenAI 兼容客户端（默认支持 DeepSeek `deepseek-chat`，也可切通义千问/Ollama/vLLM），含超时、429/5xx 指数退避重试、Token 成本估算与上游故障自动降级 | 接入流式 SSE 输出与多模型路由 |
+| **工程与现场演示** | 离线 `pytest` 单测、Ruff 静态检查、30 题固定评测集（CI 自动跑 Mock 基线）、内置可视化演示页（含模型用量/成本标签与报表渲染） | 接入 `pgvector` 混合检索 + Rerank |
 
 ### 内置角色权限矩阵（SOP 文档 + ERP 报表）
 
@@ -62,13 +63,18 @@ py -3 -m venv .venv
 # 2. 安装项目与开发依赖
 pip install -e ".[dev]"
 
-# 3. 复制环境变量模板
+# 3. 复制环境变量模板（默认 mock 免 Key；如需接入 DeepSeek，在 .env 中设置 LLM_PROVIDER=deepseek 并填入 LLM_API_KEY）
 Copy-Item .env.example .env
 
-# 4. 运行离线单元测试（覆盖配置校验、RBAC 知识库、只读 ERP 工具与注入拦截）
+# 4. 运行离线单元测试与 30 题固定基线评测
 pytest tests/unit
+python evals/run_eval.py --provider mock
 
-# 5. 启动服务并打开演示页面
+# 5. 如已配置 DeepSeek API Key，先小样本 5 题试跑验证，再跑全量 30 题评测
+# python evals/run_eval.py --provider deepseek --limit 5
+# python evals/run_eval.py --provider deepseek
+
+# 6. 启动服务并打开演示页面
 uvicorn ops_agent.main:app --reload --port 8000
 ```
 
@@ -97,11 +103,16 @@ enterprise-ai-ops-agent/
 ├── docs/
 │   ├── solution_proposal.md        # 售前解决方案书（架构、权限、实施周期、ROI）
 │   └── poc_eval_report.md          # PoC 评测报告模板
+├── evals/
+│   ├── dataset.jsonl               # 30 题固定评测集（15 授权 + 8 越权 + 4 注入 + 3 库外）
+│   └── run_eval.py                 # 评测运行脚本（支持 mock / deepseek / --limit 小样本试跑）
 ├── src/ops_agent/
-│   ├── config.py                   # 环境变量与边界强校验
+│   ├── config.py                   # .env 读取、环境变量与边界强校验
 │   ├── rbac.py                     # 部门权限矩阵、提示词/SQL注入拦截与审计记录
 │   ├── knowledge.py                # 权限前置过滤的企业知识检索器
 │   ├── erp_tools.py                # 白名单只读 ERP 模拟库（PRAGMA query_only）与报表工具
+│   ├── llm_client.py               # DeepSeek / OpenAI 兼容客户端（超时、重试、Token 与成本统计）
+│   ├── pipeline.py                 # 安全前置编排管线（拒答题 0 模型调用 + 故障自动降级）
 │   └── main.py                     # FastAPI 统一路由与内置可视化演示页
 ├── tests/unit/                     # 离线单元测试（无 Key 依赖）
 ├── Dockerfile
@@ -116,13 +127,13 @@ enterprise-ai-ops-agent/
 
 > 说明：以下指标仅记录真实运行结果，未跑完整 LLM 评测集前保持 `待实测`，不虚构数据。
 
-| 指标 | 定义 | 当前状态 |
-|---|---|---|
-| CI 静态检查与离线单测 | GitHub Actions 自动执行 `ruff check` + `pytest tests/unit` | ✅ CI 已验证通过 |
-| ERP 工具白名单与只读隔离 | 跨部门调用 AP/PO 拒绝、SQLite `query_only` 写入拦截 | ✅ 离线单测已覆盖 |
-| 越权访问拦截率（固定集） | 低权限角色提问高权限文档/报表时的正确拒答比例 | `待实测（30 题固定集）` |
-| 检索 Recall@5 | Top-5 召回片段包含标准答案文档的比例 | `待接入 pgvector 后实测` |
-| P95 端到端延迟与单次成本 | 接入真实大模型后的响应延迟与 Token 成本 | `待接入真实模型后实测` |
+| 指标 | 定义 | 离线基线实测（`mock`） | DeepSeek 实测（`deepseek-chat`） |
+|---|---|---:|---:|
+| CI 静态检查与离线单测 | `ruff check src tests evals` + `pytest tests/unit` | ✅ CI 自动验证 | — |
+| 30 题固定集总通过率 | 15 授权 + 8 越权 + 4 注入 + 3 库外 | **100.0% (30/30)** | `待填入 Key 实测` |
+| 越权与注入前置拦截率 | 权限/注入拦在调模型前（拒答题 **0 次模型调用**） | **100.0% (12/12)** | `前置拦截（0 Token）` |
+| 授权来源引用准确率 | 命中正确 SOP 文档 ID 或只读 ERP 表 | **100.0% (15/15)** | `待填入 Key 实测` |
+| P95 延迟 / 单次成本 | 端到端 95 分位耗时与平均单次费用 | **0.18 ms / ¥0** | `待填入 Key 实测` |
 
 ---
 

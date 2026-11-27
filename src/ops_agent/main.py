@@ -1,4 +1,4 @@
-"""FastAPI entrypoint with RBAC knowledge retrieval, read-only ERP tools, and demo UI."""
+"""FastAPI entrypoint with RBAC knowledge retrieval, read-only ERP tools, and DeepSeek support."""
 
 from __future__ import annotations
 
@@ -11,24 +11,31 @@ from pydantic import BaseModel, Field
 
 from ops_agent import __version__
 from ops_agent.config import load_config_from_env
-from ops_agent.erp_tools import ReadOnlyErpService, detect_erp_tool_intent
+from ops_agent.erp_tools import ReadOnlyErpService
 from ops_agent.knowledge import EnterpriseKnowledgeService, load_sample_docs
+from ops_agent.llm_client import build_llm_client
+from ops_agent.pipeline import EnterpriseOpsPipeline
 from ops_agent.rbac import ROLE_ALLOWED_DEPARTMENTS, ROLE_LABELS
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_DOCS_DIR = PROJECT_ROOT / "data" / "sample_docs"
 
-config = load_config_from_env()
+config = load_config_from_env(dotenv_path=PROJECT_ROOT / ".env")
 knowledge_service = EnterpriseKnowledgeService(
     docs=load_sample_docs(SAMPLE_DOCS_DIR),
     max_query_length=config.max_query_length,
 )
 erp_service = ReadOnlyErpService()
+pipeline = EnterpriseOpsPipeline(
+    knowledge_service=knowledge_service,
+    erp_service=erp_service,
+    llm_client=build_llm_client(config),
+)
 
 app = FastAPI(
     title="Enterprise AI Ops Agent",
     version=__version__,
-    description="企业内网级权限隔离知识库与只读 ERP 报表问答智能体（PoC MVP）",
+    description="企业内网级权限隔离知识库与只读 ERP 报表问答智能体（支持 DeepSeek / 离线 Mock）",
 )
 
 
@@ -50,6 +57,7 @@ def health() -> dict[str, str]:
         "version": __version__,
         "env": config.app_env,
         "llm_provider": config.llm_provider,
+        "llm_model": config.llm_model,
     }
 
 
@@ -97,40 +105,12 @@ def query_erp_tool(payload: ErpToolRequest) -> dict[str, object]:
 
 @app.post("/api/v1/query")
 def query_unified(payload: QueryRequest) -> dict[str, object]:
-    """Unified entrypoint: routes ERP report questions to read-only tools, others to RBAC RAG."""
+    """Unified entrypoint: RBAC + guardrails execute before optional DeepSeek synthesis."""
     try:
-        erp_tool = detect_erp_tool_intent(payload.question)
-        if erp_tool is not None:
-            erp_res = erp_service.execute_tool(
-                role=payload.role,
-                tool_name=erp_tool,
-                question=payload.question,
-            )
-            return {
-                "route": "erp_tool",
-                "tool_used": erp_res.tool_name,
-                "answer": erp_res.answer,
-                "table_rows": erp_res.rows,
-                "summary": erp_res.summary,
-                "citations": [],
-                "refused": erp_res.refused,
-                "audit": asdict(erp_res.audit),
-            }
-
-        rag_res = knowledge_service.query(role=payload.role, question=payload.question)
+        result = pipeline.ask(role=payload.role, question=payload.question)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    return {
-        "route": "knowledge_base",
-        "tool_used": None,
-        "answer": rag_res.answer,
-        "table_rows": [],
-        "summary": {},
-        "citations": rag_res.citations,
-        "refused": rag_res.refused,
-        "audit": asdict(rag_res.audit),
-    }
+    return asdict(result)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -217,13 +197,14 @@ def demo_page() -> str:
     .ok { background: #dcfce7; color: #166534; }
     .refused { background: #fee2e2; color: #991b1b; }
     .route { background: #e0e7ff; color: #3730a3; }
+    .cost { background: #fef3c7; color: #92400e; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>Enterprise AI Ops Agent（知识库 + 只读 ERP 报表权限演示）</h1>
+    <h1>Enterprise AI Ops Agent（知识库 + 只读 ERP + DeepSeek）</h1>
     <p>
-      切换部门角色后提问，演示「SOP 知识检索 + 只读 ERP 报表白名单查询 + 越权拒答审计」。
+      切换部门角色后提问，演示「权限前置过滤 + 只读 ERP 报表 + DeepSeek 生成 + 成本审计」。
     </p>
     <label for="role">当前演示角色</label>
     <select id="role">
@@ -271,7 +252,7 @@ def demo_page() -> str:
       <h3>结构化报表数据</h3>
       <div id="tableContainer"></div>
     </div>
-    <h3>审计记录与引用</h3>
+    <h3>模型用量、引用与审计记录</h3>
     <pre id="meta"></pre>
   </div>
   <script>
@@ -309,13 +290,21 @@ def demo_page() -> str:
         ? '只读 ERP 工具：' + data.tool_used
         : '企业知识库检索';
       const routeBadge = '<span class="badge route">' + routeLabel + '</span>';
-      document.getElementById('statusBadge').innerHTML = stateBadge + routeBadge;
+      const usage = data.llm_usage;
+      const costBadge = usage
+        ? '<span class="badge cost">' + usage.model + ' | ' + usage.total_tokens +
+          ' tok | ¥' + usage.estimated_cost_cny + '</span>'
+        : '';
+      document.getElementById('statusBadge').innerHTML = stateBadge + routeBadge + costBadge;
       document.getElementById('answer').textContent =
         data.answer || JSON.stringify(data, null, 2);
       renderTable(data.table_rows);
       const meta = {
         route: data.route,
         tool_used: data.tool_used,
+        degraded: data.degraded,
+        latency_ms: data.latency_ms,
+        llm_usage: data.llm_usage,
         summary: data.summary,
         citations: data.citations,
         audit: data.audit

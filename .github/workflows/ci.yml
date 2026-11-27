@@ -24,7 +24,10 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run Ruff lint
-        run: ruff check src tests
+        run: ruff check src tests evals
 
       - name: Run offline unit tests (no API key required)
         run: pytest tests/unit
+
+      - name: Run 30-task offline PoC evaluation baseline
+        run: python evals/run_eval.py --provider mock

@@ -1,10 +1,13 @@
-"""Configuration parsing and validation helpers."""
+"""Configuration parsing, .env loading, and boundary validation helpers."""
 
 from __future__ import annotations
 
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
+
+SUPPORTED_PROVIDERS: frozenset[str] = frozenset({"mock", "deepseek", "openai_compatible"})
 
 
 def parse_port(value: str) -> int:
@@ -46,6 +49,24 @@ def parse_max_retries(value: str) -> int:
     return retries
 
 
+def load_dotenv_file(dotenv_path: Path) -> dict[str, str]:
+    """Read key=value pairs from a local .env file without mutating os.environ."""
+    values: dict[str, str] = {}
+    if not dotenv_path.exists():
+        return values
+
+    for raw_line in dotenv_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        cleaned_key = key.strip()
+        cleaned_val = val.strip().strip('"').strip("'")
+        if cleaned_key:
+            values[cleaned_key] = cleaned_val
+    return values
+
+
 @dataclass(frozen=True)
 class AppConfig:
     """Validated runtime configuration."""
@@ -54,15 +75,27 @@ class AppConfig:
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     llm_provider: str = "mock"
+    llm_base_url: str = "https://api.deepseek.com/v1"
+    llm_api_key: str = ""
+    llm_model: str = "deepseek-chat"
     llm_timeout_seconds: int = 30
     llm_max_retries: int = 2
     max_query_length: int = 1000
 
 
-def load_config_from_env(environ: Mapping[str, str] | None = None) -> AppConfig:
-    """Load and validate application settings from environment variables."""
-    env = os.environ if environ is None else environ
-    max_query_length_raw = env.get("MAX_QUERY_LENGTH", "1000")
+def load_config_from_env(
+    environ: Mapping[str, str] | None = None,
+    *,
+    dotenv_path: Path | None = None,
+) -> AppConfig:
+    """Load and validate application settings from .env (optional) and environment variables."""
+    merged: dict[str, str] = {}
+    if dotenv_path is not None:
+        merged.update(load_dotenv_file(dotenv_path))
+    source_env = os.environ if environ is None else environ
+    merged.update(source_env)
+
+    max_query_length_raw = merged.get("MAX_QUERY_LENGTH", "1000")
     try:
         max_query_length = int(max_query_length_raw)
     except ValueError as exc:
@@ -70,12 +103,28 @@ def load_config_from_env(environ: Mapping[str, str] | None = None) -> AppConfig:
     if not 10 <= max_query_length <= 5000:
         raise ValueError(f"MAX_QUERY_LENGTH 必须在 10～5000 之间，收到：{max_query_length}")
 
+    provider = merged.get("LLM_PROVIDER", "mock").strip().lower() or "mock"
+    if provider not in SUPPORTED_PROVIDERS:
+        raise ValueError(
+            f"不支持的 LLM_PROVIDER：{provider!r}，可选：{sorted(SUPPORTED_PROVIDERS)}"
+        )
+
+    default_base_url = (
+        "https://api.deepseek.com/v1"
+        if provider in {"mock", "deepseek"}
+        else "https://api.openai.com/v1"
+    )
+    default_model = "deepseek-chat" if provider in {"mock", "deepseek"} else "gpt-4o-mini"
+
     return AppConfig(
-        app_env=env.get("APP_ENV", "dev").strip() or "dev",
-        app_host=env.get("APP_HOST", "0.0.0.0").strip() or "0.0.0.0",
-        app_port=parse_port(env.get("APP_PORT", "8000")),
-        llm_provider=env.get("LLM_PROVIDER", "mock").strip().lower() or "mock",
-        llm_timeout_seconds=parse_timeout(env.get("LLM_TIMEOUT_SECONDS", "30")),
-        llm_max_retries=parse_max_retries(env.get("LLM_MAX_RETRIES", "2")),
+        app_env=merged.get("APP_ENV", "dev").strip() or "dev",
+        app_host=merged.get("APP_HOST", "0.0.0.0").strip() or "0.0.0.0",
+        app_port=parse_port(merged.get("APP_PORT", "8000")),
+        llm_provider=provider,
+        llm_base_url=(merged.get("LLM_BASE_URL", default_base_url).strip() or default_base_url),
+        llm_api_key=merged.get("LLM_API_KEY", "").strip(),
+        llm_model=merged.get("LLM_MODEL", default_model).strip() or default_model,
+        llm_timeout_seconds=parse_timeout(merged.get("LLM_TIMEOUT_SECONDS", "30")),
+        llm_max_retries=parse_max_retries(merged.get("LLM_MAX_RETRIES", "2")),
         max_query_length=max_query_length,
     )
