@@ -25,6 +25,10 @@ _INJECTION_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"ignore\s+(all\s+)?(previous|system)\s+instructions", re.IGNORECASE),
     re.compile(r"(输出|打印|泄露).{0,8}(所有|全部|系统提示词|prompt)", re.IGNORECASE),
     re.compile(r"(绕过|跳过).{0,6}权限", re.IGNORECASE),
+    re.compile(
+        r"\b(drop\s+table|delete\s+from|update\s+\w+\s+set|insert\s+into|truncate\s+table)\b",
+        re.IGNORECASE,
+    ),
 )
 
 
