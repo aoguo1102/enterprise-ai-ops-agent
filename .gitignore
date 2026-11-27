@@ -1,0 +1,37 @@
+# Python & 虚拟环境
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# 环境变量与密钥（严禁提交真实 .env）
+.env
+.env.*
+!.env.example
+
+# 私有数据、本地数据库与评测临时产物
+data/private/
+data/raw/
+*.sqlite
+*.sqlite3
+*.db
+*.mdb
+logs/
+*.log
+evals/outputs/
+
+# IDE & 操作系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
