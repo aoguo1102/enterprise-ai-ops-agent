@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 ROLE_ALLOWED_DEPARTMENTS: dict[str, frozenset[str]] = {
     "employee": frozenset({"public"}),
@@ -69,7 +69,7 @@ class AuditRecord:
     ) -> AuditRecord:
         preview = question.strip().replace("\n", " ")[:120]
         return cls(
-            timestamp_utc=datetime.now(timezone.utc).isoformat(),
+            timestamp_utc=datetime.now(UTC).isoformat(),
             role=role,
             question_preview=preview,
             allowed_departments=sorted(allowed_departments),

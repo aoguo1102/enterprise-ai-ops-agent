@@ -83,17 +83,69 @@ def demo_page() -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Enterprise AI Ops Agent - 权限隔离 PoC 演示</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 820px; margin: 32px auto; padding: 0 16px; color: #1f2937; background: #f8fafc; }
-    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); margin-bottom: 16px; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 820px;
+      margin: 32px auto;
+      padding: 0 16px;
+      color: #1f2937;
+      background: #f8fafc;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      margin-bottom: 16px;
+    }
     h1 { margin-top: 0; font-size: 22px; }
     label { display: block; font-weight: 600; margin: 12px 0 6px; }
-    select, textarea { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; box-sizing: border-box; }
-    button { margin-top: 12px; padding: 10px 18px; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    select, textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    button {
+      margin-top: 12px;
+      padding: 10px 18px;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
     button:hover { background: #1d4ed8; }
     .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-    .chip { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
-    pre { background: #0f172a; color: #e2e8f0; padding: 14px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; font-size: 13px; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+    .chip {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      border-radius: 999px;
+      padding: 4px 12px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    pre {
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 14px;
+      border-radius: 8px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      font-size: 13px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+    }
     .ok { background: #dcfce7; color: #166534; }
     .refused { background: #fee2e2; color: #991b1b; }
   </style>
@@ -142,7 +194,8 @@ def demo_page() -> str:
         ? '<span class="badge refused">已拒答 / 拦截</span>'
         : '<span class="badge ok">授权命中</span>';
       document.getElementById('answer').textContent = data.answer || JSON.stringify(data, null, 2);
-      document.getElementById('meta').textContent = JSON.stringify({ citations: data.citations, audit: data.audit }, null, 2);
+      const meta = { citations: data.citations, audit: data.audit };
+      document.getElementById('meta').textContent = JSON.stringify(meta, null, 2);
     }
   </script>
 </body>
